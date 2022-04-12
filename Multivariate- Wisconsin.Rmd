@@ -1,0 +1,260 @@
+```{r}
+rm(list=ls())
+```
+
+```{r}
+#Loading the Data
+data <- read.csv("https://raw.githubusercontent.com/rajdeepsaha0809/MTH514A-Multivariate-Project/main/breast%20cancer%20data.csv?token=GHSAT0AAAAAABSA2VFBY7BLSPCVRHEIFL4YYSVHE6A")
+head(data)
+attach(data)
+data <- data[,2:ncol(data)]
+head(data)
+dim(data)
+```
+```{r}
+#Check for Missing Values
+sum(is.na(data))
+```
+```{r}
+#Check for Data
+sum(diagnosis=="M")*100/nrow(data)
+sum(diagnosis=="B")*100/nrow(data)
+library(remotes)
+#remotes::install_github("cran/DMwR")
+library(DMwR)
+data$diagnosis <- as.factor(diagnosis)
+data <- SMOTE(diagnosis~., data, perc.over= 200, k= 5,  perc.under= 150)
+attach(data)
+sum(diagnosis=="M")*100/nrow(data)
+sum(diagnosis=="B")*100/nrow(data)
+```
+
+```{r}
+#Feature Selection for Parametric Methods
+library(leaps)
+regfit.full <- regsubsets(diagnosis~., data= data, nvmax= 30)
+reg.summary <- summary(regfit.full)
+which.min(reg.summary$bic)
+plot(reg.summary$bic, xlab= "Number of Variables", ylab= "BIC", type= "l")
+points(13, reg.summary$bic[12], col= "red", cex= 2, pch= 20)
+cf <- coef(regfit.full, 13)
+#install.packages("tidyverse")
+library(broom)
+tidy.fit <- tidy(cf)
+names <- tidy.fit$names[2:nrow(tidy.fit)]
+names
+final_data <- cbind(subset(data,select=  names), diagnosis)
+dim(final_data)
+```
+```{r}
+#Splitting the Data
+set.seed(2022)
+names(final_data)
+index1 = sample(1:nrow(final_data),floor(0.85*nrow(final_data)))
+train = final_data[index1, ]
+remaining = final_data[-index1, ]
+index2 = sample(1:nrow(remaining),floor(2/3*nrow(remaining)))
+crossval = remaining[index2, ]
+test = remaining[-index2, ]
+actual_diagnosis=crossval$diagnosis
+dim(train)
+dim(crossval)
+dim(test)
+```
+```{r}
+library(tibble)
+library(cvms)
+f_cfm <- function(x){
+  cfm <- as.tibble(x)
+  cname <- colnames(cfm)
+  print(plot_confusion_matrix(cfm, target_col = cname[2], prediction_col =  cname[1], counts_col = cname[3]))
+}
+```
+
+```{r}
+#Logistic Regression
+attach(final_data)
+threshold <- seq(0.1, 0.9, 0.01)
+fscore <- array(0)
+for(i in 1:length(threshold)){
+  logistic.fit <- glm(diagnosis~., data = train, family = binomial)
+  logistic.probs <- predict(logistic.fit, crossval, type = "response")
+  logistic.pred <- rep("B", nrow(crossval))
+  logistic.pred[logistic.probs > threshold[i]]= "M"
+  tab <- table(logistic.pred, crossval$diagnosis)
+  prec <- tab[2,2]/(tab[2,2] + tab[2,1])
+  #print(prec)
+  recall <- tab[2,2]/(tab[2,2] + tab[1,2])
+  #print(recall)
+  fscore[i] <- (2*prec*recall)/(prec + recall)
+}
+data.frame(threshold, fscore)
+max_acc <- which.max(fscore)
+paste("Maximum F1-score is for thresold value of ", threshold[max_acc], " and is = ",round(fscore[max_acc],4))
+
+logistic.fit <- glm(diagnosis~., data = train, family = binomial)
+logistic.probs <- predict(logistic.fit, crossval, type = "response")
+logistic.pred <- rep("B", nrow(crossval))
+logistic.pred[logistic.probs > threshold[max_acc]] = "M"
+actual <- crossval$diagnosis
+logistic_table <- table(logistic.pred, actual)
+f_cfm(logistic_table)
+```
+```{r}
+#lda
+library(MASS)
+lda.fit <- lda(diagnosis~., data= train)
+lda.fit
+plot(lda.fit)
+lda.pred <- predict(lda.fit, crossval)
+posterior_prob <- lda.pred$posterior[,2]
+threshold <- seq(0.1, 0.9, 0.01)
+fscore <- array(0)
+for(i in 1:length(threshold)){
+  lda.pred <- rep("B", nrow(crossval))
+  lda.pred[posterior_prob > threshold[i]]= "M"
+  tab <- table(lda.pred, crossval$diagnosis)
+  prec <- tab[2,2]/(tab[2,2] + tab[2,1])
+  recall <- tab[2,2]/(tab[2,2] + tab[1,2])
+  fscore[i] <- (2*prec*recall)/(prec + recall)
+}
+data.frame(threshold, fscore)
+max_acc <- which.max(fscore)
+paste("Maximum F1-score is for thresold value of ", threshold[max_acc], " and is = ",round(fscore[max_acc],4))
+
+lda.fit <- lda(diagnosis~., data = train)
+lda.probs <- predict(lda.fit, crossval)$posterior[,2]
+lda.pred <- rep("B", nrow(crossval))
+lda.pred[lda.probs > threshold[max_acc]] = "M"
+actual <- crossval$diagnosis
+lda_table <- table(lda.pred, actual)
+f_cfm(lda_table)
+```
+```{r}
+#qda
+library(MASS)
+qda.fit <- qda(diagnosis~., data= train)
+qda.fit
+qda.pred <- predict(qda.fit, crossval)
+posterior_prob <- qda.pred$posterior[,2]
+threshold <- seq(0.1, 0.9, 0.01)
+fscore <- array(0)
+for(i in 1:length(threshold)){
+  qda.pred <- rep("B", nrow(crossval))
+  qda.pred[posterior_prob > threshold[i]]= "M"
+  tab <- table(qda.pred, crossval$diagnosis)
+  prec <- tab[2,2]/(tab[2,2] + tab[2,1])
+  recall <- tab[2,2]/(tab[2,2] + tab[1,2])
+  fscore[i] <- (2*prec*recall)/(prec + recall)
+}
+data.frame(threshold, fscore)
+max_acc <- which.max(fscore)
+paste("Maximum F1-score is for thresold value of ", threshold[max_acc], " and is = ",round(fscore[max_acc],4))
+
+qda.fit <- qda(diagnosis~., data = train)
+qda.probs <- predict(qda.fit, crossval)$posterior[,2]
+qda.pred <- rep("B", nrow(crossval))
+qda.pred[qda.probs > threshold[max_acc]] = "M"
+actual <- crossval$diagnosis
+qda_table <- table(qda.pred, actual)
+f_cfm(qda_table)
+```
+```{r}
+#Splitting the Data for Nonparametric Approach
+set.seed(2022)
+names(data)
+index1 = sample(1:nrow(data),floor(0.85*nrow(data)))
+train = data[index1, ]
+remaining = data[-index1, ]
+index2 = sample(1:nrow(remaining),floor(2/3*nrow(remaining)))
+crossval = remaining[index2, ]
+test = remaining[-index2, ]
+actual_diagnosis=crossval$diagnosis
+dim(train)
+dim(crossval)
+dim(test)
+
+```
+```{r}
+#Decision Tree
+library(tree)
+tree.fit <- tree(diagnosis~., data= train)
+set.seed(2022)
+cv.diagnosis <- cv.tree(tree.fit, FUN= prune.misclass)
+cv.diagnosis #dev corresponds to misclassification error rate
+par(mfrow=c(1,2))
+plot(cv.diagnosis$size, cv.diagnosis$dev, type= "b")
+plot(cv.diagnosis$k, cv.diagnosis$dev, type= "b")
+prune.tree <- prune.misclass(tree.fit, best = 11)
+plot(prune.tree)
+text(prune.tree, pretty = 0)
+tree.pred <- predict(prune.tree, crossval, type = "class")
+tree_table <- table(tree.pred, actual_diagnosis)
+f_cfm(tree_table)
+```
+```{r}
+#Random Forest
+set.seed(1)
+library(randomForest)
+used_pred = floor(sqrt(ncol(data)))
+rf.fit <- randomForest(diagnosis~., data = train, mtry = used_pred,
+           importance = TRUE, maxdepth = 7)
+rf.pred <- predict(rf.fit, newdata = crossval)
+rf_table <- table(rf.pred, actual_diagnosis)
+f_cfm(rf_table)
+```
+```{r}
+#k-NN
+library(class)
+train.X <- train[,2:ncol(data)]
+crossval.X <- crossval[,2:ncol(data)]
+train.diagnosis <- train$diagnosis
+set.seed(2022)
+k <- 3:10
+misclass <- array(0)
+for (i in 1:length(k)){
+  knn.pred <- knn(train.X, crossval.X, train.diagnosis, k= i)
+  misclass[i] <- mean(knn.pred!=crossval$diagnosis)
+}
+plot(k, misclass)
+paste("The choice of k is", "k=",k[which.min(misclass)])
+
+knn.pred <- knn(train.X, crossval.X, train.diagnosis, k= 5)
+knn_table <- table(knn.pred, actual_diagnosis)
+f_cfm(knn_table)
+
+```
+```{r}
+misclassification_rate_logistic=(mean(logistic.pred!=actual))*100
+misclassification_rate_lda=(mean(lda.pred!=actual))*100
+misclassification_rate_qda=(mean(qda.pred!=actual))*100
+misclassification_rate_tree=(mean(tree.pred!=actual))*100
+misclassification_rate_forest=(mean(rf.pred!=actual))*100
+misclassification_rate_knn=(mean(knn.pred!=actual))*100
+paste("Misclassification Error Rate for Logistic Regression is",round(misclassification_rate_logistic,4),"%")
+paste("Misclassification Error Rate for LDA is",round(misclassification_rate_lda,4),"%")
+paste("Misclassification Error Rate for QDA is",round(misclassification_rate_qda,4),"%")
+paste("Misclassification Error Rate for Decision Tree is",round(misclassification_rate_tree,4),"%")
+paste("Misclassification Error Rate for Random Forest is",round(misclassification_rate_forest,4),"%")
+paste("Misclassification Error Rate for k-NN is",round(misclassification_rate_knn,4),"%")
+```
+```{r}
+attach(test)
+actual.diagnosis.test=as.factor(test$diagnosis)
+lda.pred.test=predict(lda.fit, test)
+lda.probs <- predict(lda.fit, test)$posterior[,2]
+lda.pred <- rep("B", nrow(test))
+lda.pred[lda.probs > threshold[max_acc]] = "M"
+actual <- crossval$diagnosis
+lda_table <- table(lda.pred, actual.diagnosis.test)
+f_cfm(lda_table)
+misclassification_final=mean(lda_pred_test!= actual_diagnosis_test)*100
+paste("Misclassification Error Rate for final model is",round(misclassification{_final,4),"%")
+```
+
+
+
+
+
+
+
